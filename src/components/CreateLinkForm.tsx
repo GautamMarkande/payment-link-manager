@@ -12,6 +12,8 @@ const EMPTY = {
   email: '',
   phone: '',
   expiry: '',
+  allowPartial: false,
+  minimum: '',
 }
 
 export function CreateLinkForm({ onCreate }: CreateLinkFormProps) {
@@ -29,12 +31,15 @@ export function CreateLinkForm({ onCreate }: CreateLinkFormProps) {
   const phoneErrorId = useId()
   const expiryHintId = useId()
   const expiryErrorId = useId()
+  const minimumHintId = useId()
+  const minimumErrorId = useId()
   const successRef = useRef<HTMLParagraphElement>(null)
   const amountRef = useRef<HTMLInputElement>(null)
   const descriptionRef = useRef<HTMLTextAreaElement>(null)
   const emailRef = useRef<HTMLInputElement>(null)
   const phoneRef = useRef<HTMLInputElement>(null)
   const expiryRef = useRef<HTMLInputElement>(null)
+  const minimumRef = useRef<HTMLInputElement>(null)
 
   const [now] = useState(() => new Date())
   const result = validatePaymentLink(values, now)
@@ -46,7 +51,7 @@ export function CreateLinkForm({ onCreate }: CreateLinkFormProps) {
     if (success) successRef.current?.focus()
   }, [success])
 
-  function update(field: keyof typeof EMPTY, value: string) {
+  function update(field: 'amount' | 'description' | 'email' | 'phone' | 'expiry' | 'minimum', value: string) {
     setValues((current) => ({ ...current, [field]: value }))
     setSuccess(null)
   }
@@ -58,6 +63,7 @@ export function CreateLinkForm({ onCreate }: CreateLinkFormProps) {
     if (!submission.ok) {
       setSuccess(null)
       if (submission.errors.amount) amountRef.current?.focus()
+      else if (submission.errors.minimum) minimumRef.current?.focus()
       else if (submission.errors.description) descriptionRef.current?.focus()
       else if (submission.errors.customer || submission.errors.email) emailRef.current?.focus()
       else if (submission.errors.phone) phoneRef.current?.focus()
@@ -214,6 +220,51 @@ export function CreateLinkForm({ onCreate }: CreateLinkFormProps) {
           ) : null}
         </div>
       </fieldset>
+
+      <div className="field">
+        <label className="check">
+          <input
+            type="checkbox"
+            name="allowPartial"
+            checked={values.allowPartial}
+            onChange={(event) => {
+              setValues((current) => ({ ...current, allowPartial: event.target.checked }))
+              setSuccess(null)
+            }}
+          />
+          Allow partial payments
+        </label>
+        {values.allowPartial ? (
+          <>
+            <label htmlFor="minimum">Minimum first payment (₹)</label>
+            <div className="amount-input">
+              <span aria-hidden="true">₹</span>
+              <input
+                ref={minimumRef}
+                id="minimum"
+                name="minimum"
+                inputMode="decimal"
+                autoComplete="off"
+                aria-required="true"
+                aria-invalid={errors.minimum ? true : undefined}
+                aria-describedby={[minimumHintId, errors.minimum ? minimumErrorId : '']
+                  .filter(Boolean)
+                  .join(' ')}
+                value={values.minimum}
+                onChange={(event) => update('minimum', event.target.value)}
+              />
+            </div>
+            <p id={minimumHintId} className="hint">
+              Required. Greater than 0 and no more than the link amount.
+            </p>
+            {errors.minimum ? (
+              <p id={minimumErrorId} className="field-error">
+                {errors.minimum}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
 
       <div className="field">
         <label htmlFor="expiry">Expiry date (optional)</label>

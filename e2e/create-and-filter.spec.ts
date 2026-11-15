@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 test('creates a payment link and filters it by status', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByLabel('Amount (₹)').fill('1500')
+  await page.getByLabel('Amount (₹)', { exact: true }).fill('1500')
   await page.getByLabel('Description').fill('Courtyard concert ticket')
   await page.getByLabel('Email').fill('buyer@example.com')
   await page.getByRole('button', { name: 'Create payment link', exact: true }).click()
@@ -23,4 +23,7 @@ test('creates a payment link and filters it by status', async ({ page }) => {
 
   await page.getByRole('button', { name: 'All', exact: true }).click()
   await expect(created).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Courtyard concert ticket' })).toBeVisible()
 })

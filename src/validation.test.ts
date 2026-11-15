@@ -4,7 +4,9 @@ import {
   validateCustomer,
   validateDescription,
   validateExpiry,
+  validateMinimumFirstPayment,
   validatePaymentLink,
+  validateRecordedPayment,
 } from './validation.ts'
 
 const now = new Date(2026, 10, 15, 16, 0, 0)
@@ -86,11 +88,71 @@ describe('validateExpiry', () => {
   })
 })
 
+describe('validateMinimumFirstPayment', () => {
+  it('requires a minimum above 0 and within the link amount only when partial payments are allowed', () => {
+    expect(validateMinimumFirstPayment('50', 100, false)).toEqual({ ok: true, value: null })
+    expect(validateMinimumFirstPayment('', 100, true)).toMatchObject({
+      ok: false,
+      error: 'Enter a minimum first payment.',
+    })
+    expect(validateMinimumFirstPayment('0', 100, true)).toMatchObject({
+      ok: false,
+      error: 'Minimum first payment must be greater than 0.',
+    })
+    expect(validateMinimumFirstPayment('100.01', 100, true)).toMatchObject({
+      ok: false,
+      error: 'Minimum first payment cannot exceed the link amount.',
+    })
+    expect(validateMinimumFirstPayment('100', 100, true)).toEqual({ ok: true, value: 100 })
+  })
+})
+
+describe('validateRecordedPayment', () => {
+  const partialLink = {
+    amount: 1000,
+    amountPaid: 0,
+    allowPartial: true,
+    minimumFirstPayment: 300,
+  }
+
+  it('accepts a payment above 0 and within the amount due, including the first-payment minimum', () => {
+    expect(validateRecordedPayment('300', partialLink)).toEqual({ ok: true, value: 300 })
+    expect(validateRecordedPayment('299.99', partialLink)).toMatchObject({
+      ok: false,
+      error: 'The first payment must be at least the minimum first payment.',
+    })
+    expect(validateRecordedPayment('1000.01', partialLink)).toMatchObject({
+      ok: false,
+      error: 'Payment cannot exceed the amount due.',
+    })
+    expect(validateRecordedPayment('0', partialLink)).toMatchObject({
+      ok: false,
+      error: 'Payment must be greater than 0.',
+    })
+    expect(
+      validateRecordedPayment('100', {
+        amount: 1000,
+        amountPaid: 0,
+        allowPartial: false,
+        minimumFirstPayment: null,
+      }),
+    ).toMatchObject({ ok: false, error: 'This link must be paid in full.' })
+  })
+})
+
 describe('validatePaymentLink', () => {
   it('returns every field error together, and a normalized link when the form is valid', () => {
     expect(
       validatePaymentLink(
-        { amount: '', description: '', email: '', phone: '', expiry: '2020-01-01' },
+        {
+          amount: '',
+          description: '',
+          email: '',
+          phone: '',
+          expiry: '2020-01-01',
+          allowPartial: true,
+          minimum: '',
+        },
         now,
       ).ok,
     ).toBe(false)
@@ -102,6 +164,8 @@ describe('validatePaymentLink', () => {
         email: '',
         phone: '09876543210',
         expiry: '',
+        allowPartial: true,
+        minimum: '40',
       },
       now,
     )
@@ -113,6 +177,8 @@ describe('validatePaymentLink', () => {
         email: null,
         phone: '+91 98765 43210',
         expiresAt: null,
+        allowPartial: true,
+        minimumFirstPayment: 40,
       },
     })
   })

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CreateLinkForm } from './components/CreateLinkForm.tsx'
 import { LinkList } from './components/LinkList.tsx'
 import { StatusFilter } from './components/StatusFilter.tsx'
-import { createSeedLinks } from './seed.ts'
+import { fromCents, toCents } from './money.ts'
 import { matchesFilter, resolveStatus } from './status.ts'
+import { loadLinks, saveLinks } from './storage.ts'
 import type { PaymentLink, StatusFilter as StatusFilterValue } from './types.ts'
 import type { ValidLinkInput } from './validation.ts'
 
@@ -15,10 +16,14 @@ function createId(): string {
 }
 
 export default function App() {
-  const [links, setLinks] = useState<PaymentLink[]>(() => createSeedLinks())
+  const [links, setLinks] = useState<PaymentLink[]>(() => loadLinks())
   const [filter, setFilter] = useState<StatusFilterValue>('all')
   const [actionError, setActionError] = useState<string | null>(null)
   const [now] = useState(() => new Date())
+
+  useEffect(() => {
+    saveLinks(links)
+  }, [links])
 
   const withStatus = links.map((link) => ({
     link,
@@ -27,6 +32,7 @@ export default function App() {
   const counts: Record<StatusFilterValue, number> = {
     all: withStatus.length,
     active: withStatus.filter((item) => item.status === 'active').length,
+    partial: withStatus.filter((item) => item.status === 'partial').length,
     paid: withStatus.filter((item) => item.status === 'paid').length,
     expired: withStatus.filter((item) => item.status === 'expired').length,
   }
@@ -39,12 +45,14 @@ export default function App() {
       const link: PaymentLink = {
         id: createId(),
         amount: input.amount,
+        amountPaid: 0,
         description: input.description,
         email: input.email,
         phone: input.phone,
         expiresAt: input.expiresAt,
         createdAt: new Date().toISOString(),
-        recordedStatus: 'active',
+        allowPartial: input.allowPartial,
+        minimumFirstPayment: input.minimumFirstPayment,
       }
       setLinks((current) => [link, ...current])
       setFilter('all')
@@ -54,21 +62,21 @@ export default function App() {
     }
   }
 
-  function handleMarkPaid(id: string) {
+  function handleRecordPayment(id: string, payment: number) {
     const link = links.find((item) => item.id === id)
     if (!link) {
       setActionError('That payment link is no longer in the list.')
       return
     }
-    if (resolveStatus(link, new Date()) !== 'active') {
-      setActionError('Only active links can be marked as paid.')
+    const status = resolveStatus(link, new Date())
+    if (status !== 'active' && status !== 'partial') {
+      setActionError('Payments can only be recorded on active or partially paid links.')
       return
     }
     setActionError(null)
+    const amountPaid = fromCents(toCents(link.amountPaid) + toCents(payment))
     setLinks((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, recordedStatus: 'paid' } : item,
-      ),
+      current.map((item) => (item.id === id ? { ...item, amountPaid } : item)),
     )
   }
 
@@ -85,8 +93,8 @@ export default function App() {
           </div>
         </div>
         <p className="lede">
-          Create a link for a customer, then track whether it is active, paid, or expired.
-          Links stay in this browser tab.
+          Create a link for a customer, then track whether it is active, partially paid, paid, or
+          expired. Links stay in this browser after a reload.
         </p>
       </header>
 
@@ -98,7 +106,7 @@ export default function App() {
         <section className="panel" aria-labelledby="links-heading">
           <div className="section-head">
             <h2 id="links-heading">Links</h2>
-            <p>Filter by status. A link past its expiry is shown as expired.</p>
+            <p>Filter by status. A link past its expiry is shown as expired unless it is fully paid.</p>
           </div>
           {actionError ? (
             <div className="banner error" role="alert">
@@ -107,7 +115,7 @@ export default function App() {
           ) : null}
           <StatusFilter value={filter} counts={counts} onChange={setFilter} />
           <div id="link-results">
-            <LinkList items={visible} filter={filter} onMarkPaid={handleMarkPaid} />
+            <LinkList items={visible} filter={filter} onRecordPayment={handleRecordPayment} />
           </div>
         </section>
       </div>

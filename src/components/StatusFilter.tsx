@@ -3,6 +3,7 @@ import type { StatusFilter } from '../types.ts'
 const FILTERS: Array<{ id: StatusFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'active', label: 'Active' },
+  { id: 'partial', label: 'Partially paid' },
   { id: 'paid', label: 'Paid' },
   { id: 'expired', label: 'Expired' },
 ]

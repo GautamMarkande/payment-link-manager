@@ -1,3 +1,6 @@
+import { toCents } from './money.ts'
+import type { PaymentLink } from './types.ts'
+
 export const MAX_AMOUNT = 500_000
 export const MAX_DESCRIPTION_LENGTH = 100
 
@@ -7,6 +10,8 @@ export type LinkFormValues = {
   email: string
   phone: string
   expiry: string
+  allowPartial: boolean
+  minimum: string
 }
 
 export type LinkFormErrors = {
@@ -16,6 +21,7 @@ export type LinkFormErrors = {
   phone?: string
   customer?: string
   expiry?: string
+  minimum?: string
 }
 
 export type ValidLinkInput = {
@@ -24,6 +30,8 @@ export type ValidLinkInput = {
   email: string | null
   phone: string | null
   expiresAt: string | null
+  allowPartial: boolean
+  minimumFirstPayment: number | null
 }
 
 export type FieldResult<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -133,6 +141,61 @@ export function validateExpiry(raw: string, now: Date): FieldResult<string | nul
   return { ok: true, value: expiry.toISOString() }
 }
 
+export function validateMinimumFirstPayment(
+  raw: string,
+  amount: number | null,
+  enabled: boolean,
+): FieldResult<number | null> {
+  if (!enabled) return { ok: true, value: null }
+  const trimmed = raw.trim()
+  if (trimmed === '') return { ok: false, error: 'Enter a minimum first payment.' }
+  const parsed = validateAmount(trimmed)
+  if (!parsed.ok) {
+    if (parsed.error === 'Enter an amount.') return { ok: false, error: 'Enter a minimum first payment.' }
+    if (parsed.error === 'Amount must be greater than 0.') {
+      return { ok: false, error: 'Minimum first payment must be greater than 0.' }
+    }
+    if (parsed.error === 'Enter a valid amount.') {
+      return { ok: false, error: 'Enter a valid minimum first payment.' }
+    }
+    if (parsed.error === 'Amount cannot exceed ₹5,00,000.') {
+      return { ok: false, error: 'Minimum first payment cannot exceed the link amount.' }
+    }
+    return { ok: false, error: parsed.error }
+  }
+  if (amount !== null && toCents(parsed.value) > toCents(amount)) {
+    return { ok: false, error: 'Minimum first payment cannot exceed the link amount.' }
+  }
+  return { ok: true, value: parsed.value }
+}
+
+export function validateRecordedPayment(
+  raw: string,
+  link: Pick<PaymentLink, 'amount' | 'amountPaid' | 'allowPartial' | 'minimumFirstPayment'>,
+): FieldResult<number> {
+  const trimmed = raw.trim().replace(/,/g, '')
+  if (trimmed === '') return { ok: false, error: 'Enter a payment amount.' }
+  if (trimmed.startsWith('-')) return { ok: false, error: 'Payment must be greater than 0.' }
+  if (/^\d+\.\d{3,}$/.test(trimmed)) return { ok: false, error: 'Use at most 2 decimal places.' }
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return { ok: false, error: 'Enter a valid payment amount.' }
+  const cents = toCents(Number(trimmed))
+  if (cents <= 0) return { ok: false, error: 'Payment must be greater than 0.' }
+  const due = toCents(link.amount) - toCents(link.amountPaid)
+  if (cents > due) return { ok: false, error: 'Payment cannot exceed the amount due.' }
+  if (!link.allowPartial && cents !== due) {
+    return { ok: false, error: 'This link must be paid in full.' }
+  }
+  if (
+    link.allowPartial &&
+    toCents(link.amountPaid) === 0 &&
+    link.minimumFirstPayment !== null &&
+    cents < toCents(link.minimumFirstPayment)
+  ) {
+    return { ok: false, error: 'The first payment must be at least the minimum first payment.' }
+  }
+  return { ok: true, value: cents / 100 }
+}
+
 export function validatePaymentLink(
   values: LinkFormValues,
   now: Date,
@@ -141,6 +204,11 @@ export function validatePaymentLink(
   const description = validateDescription(values.description)
   const customer = validateCustomer(values.email, values.phone)
   const expiry = validateExpiry(values.expiry, now)
+  const minimum = validateMinimumFirstPayment(
+    values.minimum,
+    amount.ok ? amount.value : null,
+    values.allowPartial,
+  )
   const errors: LinkFormErrors = {}
   if (!amount.ok) errors.amount = amount.error
   if (!description.ok) errors.description = description.error
@@ -150,7 +218,8 @@ export function validatePaymentLink(
     errors.phone = customer.phone
   }
   if (!expiry.ok) errors.expiry = expiry.error
-  if (!amount.ok || !description.ok || !customer.ok || !expiry.ok) {
+  if (!minimum.ok) errors.minimum = minimum.error
+  if (!amount.ok || !description.ok || !customer.ok || !expiry.ok || !minimum.ok) {
     return { ok: false, errors }
   }
   return {
@@ -161,6 +230,8 @@ export function validatePaymentLink(
       email: customer.email,
       phone: customer.phone,
       expiresAt: expiry.value,
+      allowPartial: values.allowPartial,
+      minimumFirstPayment: minimum.value,
     },
   }
 }
